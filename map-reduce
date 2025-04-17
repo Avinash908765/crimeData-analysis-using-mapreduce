@@ -1,0 +1,159 @@
+import pandas as pd
+import random
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Load the original CSV file
+file_path = '/content/Crime_Incidents_in_2024.csv'  # Path to your file
+crime_data = pd.read_csv(file_path)
+
+# Step 1: Define the map function using a specified column (e.g., OFFENSE)
+def map_by_column(crime_data, column_name):
+    mapped_data = []
+    for _, row in crime_data.iterrows():
+        key = row[column_name]  # e.g., OFFENSE
+        mapped_data.append((key, row))
+    return mapped_data
+
+# Step 2: Define the reduce function to sample records for each key
+def reduce_to_sample(mapped_data, sample_size=10000):
+    reduced_data = {}
+    for key, record in mapped_data:
+        if key not in reduced_data:
+            reduced_data[key] = []
+        reduced_data[key].append(record)
+
+    final_sampled_data = []
+    for key in reduced_data:
+        records = reduced_data[key]
+        sample_count = min(len(records), sample_size // len(reduced_data))
+        final_sampled_data.extend(random.sample(records, sample_count))
+
+    if len(final_sampled_data) < sample_size:
+        remaining_count = sample_size - len(final_sampled_data)
+        remaining_records = [record for records in reduced_data.values() for record in records]
+        final_sampled_data.extend(random.sample(remaining_records, remaining_count))
+
+    return final_sampled_data
+
+# Step 3: Apply the map phase based on the OFFENSE column
+mapped_data = map_by_column(crime_data, 'OFFENSE')
+
+# Step 4: Apply the reduce phase to sample 10,000 records
+reduced_data = reduce_to_sample(mapped_data)
+
+# Step 5: Convert the reduced data back to a DataFrame
+reduced_df = pd.DataFrame(reduced_data)
+
+# Step 6: Export the reduced data to a new CSV file
+output_file = 'reduced_crime_data.csv'
+reduced_df.to_csv(output_file, index=False)
+
+print(f"New file saved as {output_file}")
+
+# Step 7: Visualizations and Operations
+
+# Visualization 1: Bar chart of crime count by OFFENSE
+plt.figure(figsize=(10,6))
+sns.countplot(y='OFFENSE', data=reduced_df, order=reduced_df['OFFENSE'].value_counts().index)
+plt.title('Crime Count by OFFENSE')
+plt.xlabel('Count')
+plt.ylabel('OFFENSE')
+plt.tight_layout()
+plt.show()
+
+# Visualization 2: Pie chart of crimes by SHIFT
+shift_counts = reduced_df['SHIFT'].value_counts()
+plt.figure(figsize=(8,8))
+plt.pie(shift_counts, labels=shift_counts.index, autopct='%1.1f%%', startangle=140, colors=sns.color_palette('pastel'))
+plt.title('Proportion of Crimes by SHIFT')
+plt.show()
+
+# Visualization 3: Scatter plot of geographical distribution of crimes (LATITUDE vs LONGITUDE)
+plt.figure(figsize=(10,6))
+plt.scatter(reduced_df['LONGITUDE'], reduced_df['LATITUDE'], alpha=0.5, edgecolor='k', color='blue')
+plt.title('Geographical Distribution of Crimes')
+plt.xlabel('Longitude')
+plt.ylabel('Latitude')
+plt.tight_layout()
+plt.show()
+
+# Step 8: Descriptive statistics for numeric columns
+print("Descriptive statistics for numeric columns:")
+print(reduced_df.describe())
+
+# Step 9: Maximum and Minimum Crimes per Month per District
+
+# Ensure 'REPORT_DAT' is in datetime format
+reduced_df['REPORT_DAT'] = pd.to_datetime(reduced_df['REPORT_DAT'])
+
+# Extract the month from the dataset
+reduced_df['MONTH'] = reduced_df['REPORT_DAT'].dt.month
+
+# Group by DISTRICT and MONTH, then calculate the number of crimes per month for each district
+district_month_crime_counts = reduced_df.groupby(['DISTRICT', 'MONTH']).size().reset_index(name='CRIME_COUNT')
+
+# For each district, find the months with the maximum and minimum crime counts
+district_max_min = district_month_crime_counts.groupby('DISTRICT').agg(
+    max_crimes=('CRIME_COUNT', 'max'),
+    min_crimes=('CRIME_COUNT', 'min')
+).reset_index()
+
+# Merge the max and min data with the original data to know which month they correspond to
+max_crimes_per_district = district_month_crime_counts[district_month_crime_counts['CRIME_COUNT'].isin(district_max_min['max_crimes'])]
+min_crimes_per_district = district_month_crime_counts[district_month_crime_counts['CRIME_COUNT'].isin(district_max_min['min_crimes'])]
+
+# Visualization 1: Maximum number of crimes per month per district
+plt.figure(figsize=(12,6))
+sns.barplot(x='DISTRICT', y='CRIME_COUNT', hue='MONTH', data=max_crimes_per_district, palette='Reds', dodge=False)
+plt.title('Maximum Number of Crimes per Month per District')
+plt.xlabel('District')
+plt.ylabel('Number of Crimes')
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+# Visualization 2: Minimum number of crimes per month per district
+plt.figure(figsize=(12,6))
+sns.barplot(x='DISTRICT', y='CRIME_COUNT', hue='MONTH', data=min_crimes_per_district, palette='Blues', dodge=False)
+plt.title('Minimum Number of Crimes per Month per District')
+plt.xlabel('District')
+plt.ylabel('Number of Crimes')
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+# Step 10: Most and Least Common Crimes per District
+
+# Group by DISTRICT and OFFENSE, calculate the number of crimes per offense per district
+district_offense_counts = reduced_df.groupby(['DISTRICT', 'OFFENSE']).size().reset_index(name='CRIME_COUNT')
+
+# For each district, find the most and least common offenses
+most_least_common_offenses = district_offense_counts.groupby('DISTRICT').agg(
+    most_common_offense=('CRIME_COUNT', 'idxmax'),
+    least_common_offense=('CRIME_COUNT', 'idxmin')
+).reset_index()
+
+# Merge back with the original data to get the offense names
+most_offenses = district_offense_counts.loc[most_least_common_offenses['most_common_offense']]
+least_offenses = district_offense_counts.loc[most_least_common_offenses['least_common_offense']]
+
+# Visualization 3: Most common crimes per district
+plt.figure(figsize=(12,6))
+sns.barplot(x='DISTRICT', y='CRIME_COUNT', hue='OFFENSE', data=most_offenses, palette='Greens', dodge=False)
+plt.title('Most Common Crimes per District')
+plt.xlabel('District')
+plt.ylabel('Number of Crimes')
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+# Visualization 4: Least common crimes per district
+plt.figure(figsize=(12,6))
+sns.barplot(x='DISTRICT', y='CRIME_COUNT', hue='OFFENSE', data=least_offenses, palette='Oranges', dodge=False)
+plt.title('Least Common Crimes per District')
+plt.xlabel('District')
+plt.ylabel('Number of Crimes')
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
